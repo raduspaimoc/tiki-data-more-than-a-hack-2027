@@ -1,0 +1,35 @@
+Para esta clase de fallo la regla sería: si el balón cambia de golpe de velocidad o de dirección (touch) y la zona de 1,5 m está vacía,
+el toque lo hizo alguien que no está en el tracking. El equipo al que se le asigna es el que tiene menos jugadores en movimiento,
+no el que tiene un track quieto lejos del balón. Un jugador parado junto a la portería contraria no cuenta como candidato.
+ Así el pase del central, aunque su track falte, pasa a A en el frame del cambio de trayectoria, y el saque deja de quedarse
+ en D al cerrarse la ventana.
+
+ Hacer una analitica ver distancia media entre balon y jugador mas cercano por frame
+ Luego ver que tal el 1.5m de referencia
+
+ Decidir si es igual o menos mantener algoritmo
+ Si es mas que podemos hacer
+
+ Rellenar posicione sne que faltan jugadores
+ Si la pelota cambia de trayecotria de repente el jugador esta en ese radio no?
+
+ Sí. La distancia al jugador trackeado más cercano, en los frames del partido en los que hay balón, dice si 1,5 m es una distancia habitual. La celda está justo antes de frames_5min_df y guarda esa distancia en nearest_tracked_m.
+
+En las dos partes, con el frame_df que ya está guardado, sale esto:
+
+Frames con balón y algún jugador
+94.214
+Media
+3,11 m
+Mediana
+1,91 m
+Dentro de 1,5 m
+41,8 %
+Del percentil 25 al 75
+0,89 m a 4,06 m
+La mitad de las veces el más cercano está a menos de 1,91 m. El 1,5 m cubre un 42 % de esos frames.
+La media sube a 3,11 m porque en el otro extremo el track más próximo está lejos: un pase por arriba, o el jugador que toca el balón sin estar trackeado.
+Ejecuta la celda para dejar la columna en el frame_df de esta sesión.
+
+
+
