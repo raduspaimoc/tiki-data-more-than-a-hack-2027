@@ -50,3 +50,35 @@ Bajar los 3 frames no adelanta el 11351: el contador no llega a empezar. Ampliar
 Qué probar, sin mover el 1,5 m: si el balón frena y cambia de sentido mientras el más cercano se aleja, ese toque no es suyo. No volver a darle el control a ese mismo jugador solo porque luego entra en la zona. La etiqueta nueva la da otro jugador, con la regla de siempre. En esta jugada eso sigue cayendo en el 11479, porque el `H` trackeado llega entonces.
 
 El rojo que desaparece en el mapa es el slot 11. Se pierde en el 11288, a 1,8 m del azul slot 35, y vuelve en el 11403. Son 115 frames, 4,6 s. En el 11351 ese hueco no está junto al balón: el slot 35 está a 16 m y una línea entre la última posición y el regreso también cae a unos 19 m. El azul pegado al balón es el slot 45, a 2,2 m, y el rojo que sí sigue trackeado ahí es el slot 3, a 3,4 m. Rellenar el slot 11 no pone a nadie sobre el toque.
+
+
+
+
+## Nuevos:
+- El ultimo step incluyendo eventos se carga 'Kick Off (Start)', 'Kick Off (After Goal)', hay que volverlos a incluir estos estaban bien son faciles de detectar, falta revisar que el tiempo muerto mientras se poscionann en el campo lo contemos bien
+- Luego: nan, 'throw_in', 'goal_kick', 'corner', 'kick_off_after_goal',
+ 'kick_off_start' veo que estan pero porque me clasifica entonces el  evento de estos frames:
+event_id	Fuera de juego	Balón en juego	Metros a la banda
+1 11033–11186 11187 0,04
+2 17047–17278 17279–17280 1,22
+como 'throw_in' y no kick_off_start
+
+
+es por el orden que aplicamos las reglas? el saque de medio campo tiene mas prioridad
+hay que ver como detectamos el tiempo muerto que el balon no esta en juego despues del gol hasta saque de porteria
+
+luego revisamos los saques de banda uno a uno y intentamos ajustar, sobretodo los que sean dentro de estos 5 minutos de juego
+
+
+pero falta implementar de aqui:
+Type
+NaN                      579
+Throw-in                  26
+Corner Kick               12
+Goal Kick                 10
+Free Kick                  5
+Kick Off (After Goal)      4
+Kick Off (Start)           2
+
+el goal kick tiene 10, cuantos nos salen a nosotros lo mismo que en corners?
+
