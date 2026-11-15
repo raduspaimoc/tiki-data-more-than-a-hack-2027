@@ -5,12 +5,14 @@
 
 The start frame is included and the end frame is excluded, same span as
 animate_frames(dataset, start, end). Frame f is second f/25 of the tactical file.
-The window seeks to the start, plays, and pauses on the last frame of the span.
-A third frame pauses there first. Space continues, and the left and right arrows
-move one frame. The first run compiles the player and can take a little while.
+The window seeks to the start and plays the span in a loop. A third frame
+pauses there first; space or the play button continues, and from then on the
+span repeats. The left and right arrows move one frame. Ctrl+C closes the
+window and the player. The first run compiles the player and can take a little while.
 """
 
 import os
+import signal
 import subprocess
 import sys
 
@@ -42,13 +44,39 @@ def play_clip(start_frame, end_frame, pause_frame=None):
         os.path.basename(path), start_frame, end_frame - 1, end_s - start_s,
         _clock(start_s), _clock(end_s)), flush=True)
     if pause_frame is not None:
-        print("Pauses on frame {} ({:.2f} s). Space continues.".format(
+        print("Pauses on frame {} ({:.2f} s). Play loops the span.".format(
             pause_frame, pause_frame / fps), flush=True)
     print("Opening a player at that second. The first launch compiles it.", flush=True)
     command = ["swift", PLAYER, path, "{:.3f}".format(start_s), "{:.3f}".format(end_s)]
     if pause_frame is not None:
         command.append("{:.3f}".format(pause_frame / fps))
-    subprocess.Popen(command)
+    # Own process group, so Ctrl+C can stop swift and the player it compiles.
+    proc = subprocess.Popen(command, start_new_session=True)
+    try:
+        returncode = proc.wait()
+    except KeyboardInterrupt:
+        _stop(proc)
+        raise
+    if returncode:
+        sys.exit(returncode)
+
+
+def _stop(proc):
+    """Close the player window and the executable swift left running."""
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        proc.wait()
 
 
 def _clock(seconds):

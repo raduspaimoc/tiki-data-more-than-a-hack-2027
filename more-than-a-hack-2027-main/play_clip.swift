@@ -21,6 +21,7 @@ final class ClipPlayer: NSObject {
     let frame = 1.0 / 25.0
     var tick: Any?
     var held = false
+    var looping = false
 
     init(url: URL, start: Double, end: Double, hold: Double?) {
         startSeconds = start
@@ -68,8 +69,21 @@ final class ClipPlayer: NSObject {
             freeze(at: hold)
             return
         }
-        if now >= endSeconds - frame {
-            freeze(at: endSeconds - frame)
+        if now >= endSeconds - frame * 0.5 {
+            loopToStart()
+        }
+    }
+
+    func loopToStart() {
+        guard !looping else { return }
+        looping = true
+        let startTime = CMTime(seconds: startSeconds, preferredTimescale: 25)
+        player.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            guard let self = self else { return }
+            self.looping = false
+            if finished {
+                self.player.play()
+            }
         }
     }
 
@@ -109,9 +123,9 @@ let window = NSWindow(
     backing: .buffered,
     defer: false)
 if let hold = pauseArg {
-    window.title = String(format: "tactical  %.2f s – %.2f s, pauses at %.2f s", start, end, hold)
+    window.title = String(format: "tactical  %.2f s – %.2f s, pauses at %.2f s, loops", start, end, hold)
 } else {
-    window.title = String(format: "tactical  %.2f s – %.2f s", start, end)
+    window.title = String(format: "tactical  %.2f s – %.2f s, loops", start, end)
 }
 window.contentView = view
 window.center()
@@ -131,5 +145,26 @@ NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         return event
     }
 }
+final class QuitOnClose: NSObject, NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        NSApp.terminate(nil)
+    }
+}
+
+let closer = QuitOnClose()
+window.delegate = closer
+
+// AppKit swallows Ctrl+C. Take SIGINT and SIGTERM and close the window.
+// The sources have to stay alive for the whole run.
+signal(SIGINT, SIG_IGN)
+signal(SIGTERM, SIG_IGN)
+var signalSources: [DispatchSourceSignal] = []
+for sig in [SIGINT, SIGTERM] {
+    let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+    source.setEventHandler { NSApp.terminate(nil) }
+    source.resume()
+    signalSources.append(source)
+}
+
 app.activate(ignoringOtherApps: true)
 app.run()
