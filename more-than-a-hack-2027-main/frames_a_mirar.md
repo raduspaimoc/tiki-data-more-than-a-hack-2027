@@ -82,3 +82,7 @@ Kick Off (Start)           2
 
 el goal kick tiene 10, cuantos nos salen a nosotros lo mismo que en corners?
 
+
+Añadido tiki_data_algorithm.py
+
+
