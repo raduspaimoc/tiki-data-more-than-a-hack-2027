@@ -1,0 +1,49 @@
+% Markdown-like page: no article title block, no first-line indent.
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{parskip}
+\usepackage{setspace}
+\setstretch{1.12}
+
+\usepackage{fontspec}
+\setmainfont{Helvetica Neue}
+\setsansfont{Helvetica Neue}
+\setmonofont{Menlo}[Scale=0.88]
+
+\usepackage{titlesec}
+\setcounter{secnumdepth}{0}
+\titleformat{\section}{\Large\bfseries}{}{0pt}{}
+\titleformat{\subsection}{\large\bfseries}{}{0pt}{}
+\titlespacing*{\section}{0pt}{1.6em}{0.55em}
+\titlespacing*{\subsection}{0pt}{1.2em}{0.4em}
+
+\usepackage{xcolor}
+\definecolor{mdtext}{HTML}{24292F}
+\definecolor{mdrule}{HTML}{D0D7DE}
+\definecolor{mdhead}{HTML}{F6F8FA}
+\definecolor{mdlink}{HTML}{0969DA}
+\color{mdtext}
+
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=mdtext,urlcolor=mdlink,citecolor=mdtext}
+
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{colortbl}
+\renewcommand{\arraystretch}{1.28}
+\renewcommand{\toprule}{\arrayrulecolor{mdrule}\hline\hline}
+\renewcommand{\midrule}{\arrayrulecolor{mdrule}\hline}
+\renewcommand{\bottomrule}{\arrayrulecolor{mdrule}\hline\hline}
+
+\usepackage{fancyhdr}
+\pagestyle{plain}
+\thispagestyle{plain}
+
+% Tighter lists, like rendered Markdown
+\usepackage{enumitem}
+\setlist[itemize]{leftmargin=1.2em,itemsep=0.2em,topsep=0.35em}
+\setlist[enumerate]{leftmargin=1.4em,itemsep=0.2em,topsep=0.35em}
+
+% Horizontal rules from ---
+\usepackage{xhfill}
+\renewcommand{\hrulefill}{\noindent\textcolor{mdrule}{\rule{\linewidth}{0.4pt}}}

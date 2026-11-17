@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.12.1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title> </title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="solution.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title"> </h1>
+</header>
+<h1 id="frame-level-possession-for-bar-ath">Frame-level possession for
+BAR-ATH</h1>
+<p><strong>More than a Hack 2027 - Phase 1</strong><br />
+Tiki Data, FC Barcelona vs Athletic Club, tactical video, 25 fps</p>
+<p>We are a <strong>data science</strong> team, Tiki Data. The work was
+to implement a frame-level possession algorithm and then <strong>review
+it on video</strong> with the <code>play_clip</code> script: watch a
+spell, find the corner case, change a generic rule, watch again. We did
+not label frames by hand. The strategy was to <strong>find dead time
+(<code>D</code>)</strong> first (out of play, restarts, half-time,
+cooling break, VAR-like huddles). Once those intervals are right, live
+frames are a zone-and-touch problem (<code>H</code> / <code>A</code>).
+Implementation was done via analysis notebooks and complementing our
+knowledge with <strong>Cursor</strong>.</p>
+<p>This note describes that <strong>ball-first</strong> pipeline. The
+ranking metric is <strong>spellF1</strong> (possession intervals), not
+event names. We used the public 5-minute ground truth (frames
+11185-18684) only as a <strong>sanity check</strong>, not as a training
+set: constants were left at literature values so a rule that fitted
+those 5 minutes would not damage the other 85.</p>
+<hr />
+<h2 id="related-work">1. Related work</h2>
+<p>We did not invent new possession physics. The implementation follows
+a small set of published ideas and the Laws of the Game.</p>
+<ul>
+<li><strong>Vidal-Codina et al.</strong> - possession as a <strong>1.5 m
+zone</strong> around the ball. A team keeps the ball while a player is
+inside that zone; a change of team needs a <strong>touch</strong> (speed
+or direction change). Two opponents in the zone is a
+<strong>duel</strong>: we keep the last team. Dead-ball events (DBE) are
+a boolean on the interval, not a copy of an event log. Corners are a
+taker near the flag during a dead spell (Law 17). The main
+corner/throw-in error is mixing the <strong>touchline</strong> with the
+<strong>goal line</strong>. A penalty is the only restart with a unique
+spatial trigger (Law 14). VAR is a referee interruption, not a set
+piece.</li>
+<li><strong>Link et al.</strong> - nearest player <strong>below a
+distance</strong>, and an action ends if that player cannot reach the
+ball in about <strong>1 s</strong> at the current speed. We keep
+vanished player tracks for <strong>2 s</strong> (ghosting) so a 1 s
+dropout does not look like a new action.</li>
+<li><strong>FIFA / IFAB Laws 8, 10, 14, 16, 17</strong> - kick-off after
+a stoppage; ball in the net between the posts; penalty shape; goal kick
+vs corner by the posts; throw-in vs corner by which line the ball
+crossed.</li>
+<li><strong>Metrica EPTS / FIFA tracking standard</strong> - the ATD
+files shipped with the challenge (<code>*_atd.xml</code> /
+<code>*_atd.txt</code>) are that export. We read them with
+<strong>kloppy</strong> (<code>metrica.load_tracking_epts</code>) so
+positions, missing ball and slot indices stay on the <strong>tactical
+video clock</strong> (row <em>i</em> of the submission is frame
+<em>i</em>). Smart Tagging is the same SportsCode XML: useful as a
+<strong>search window</strong> around kick-offs, never as frame
+labels.</li>
+</ul>
+<p>The 1.5 m radius, <strong>5 m/s</strong> speed jump, <strong>10
+degree</strong> turn and <strong>3-frame</strong> control streak are
+those papers, not numbers fit on the 5-minute slice.</p>
+<hr />
+<h2 id="design-start-from-the-ball">2. Design: start from the ball</h2>
+<p>Live play always has a team. Dead play is <code>D</code> (out,
+missing long enough to be a restart, or a match stoppage).
+<code>X</code> is not used on graded frames.</p>
+<p><strong>Inter-frame ball motion.</strong> From consecutive samples we
+get speed (m/s), turning angle and speed change. A
+<strong>touch</strong> is: speed below 5 m/s, speed change above 5 m/s,
+or a turn above 10 degrees. Possession can change only if someone is in
+the 1.5 m zone <strong>and</strong> there is a touch, for <strong>3
+frames</strong>.</p>
+<p><strong>Out of play.</strong> The ball is dead when it is tracked
+outside the pitch or missing for &gt;= 1 s after leaving a line.
+Touchline -&gt; throw-in; goal line outside the posts -&gt; corner;
+between the posts -&gt; goal kick. A keeper catch (last on-pitch sample
+inside 1.5 m, then the ball vanishes) is a <strong>save</strong>, not a
+restart.</p>
+<p><strong>Ghosts.</strong> Player slots drop out for 1-2 s in crowds.
+We hold the last position for 2 s: if another body is within 2 m we
+follow that track (a crossing); otherwise we extrapolate velocity and
+stop at the pitch edge. Separately, <strong>ball bridge</strong> fills
+gaps of at most 1 s with the last velocity while the estimate stays near
+the pitch.</p>
+<p><strong>Set pieces stay dead until the restart is taken</strong>
+(Laws 16-17): not until the tracker finds someone at 1.5 m. A short
+corner can reappear already at ~8 m/s at the flag; we treat that as the
+kick and release when the pass slows below 5 m/s. Walking to the flag is
+still <code>D</code>.</p>
+<hr />
+<h2 id="pipeline-six-stacked-steps">3. Pipeline (six stacked steps)</h2>
+<p>Each step writes a submission CSV. We kept the stack so a regression
+on the 5 minutes is visible.</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Step</th>
+<th>Name</th>
+<th>What it adds</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>order1_out</code></td>
+<td>Geometric out of play -&gt; <code>D</code></td>
+<td>Without this, live nearest-player labels run through throw-ins and
+corners.</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>order2_events</code></td>
+<td>Kick-off XML <strong>windows</strong> (start / after goal) plus hold
+until the ball is kicked at the centre</td>
+<td>Kick-off is a stoppage restart. The XML is ~5 s around the kick, not
+the whole warm-up.</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>order3_zone</code></td>
+<td>1.5 m zone + touch + 3-frame streak</td>
+<td>Replaces “nearest player” on live frames (the baseline).</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>order4_duel</code></td>
+<td>Two teams in the zone -&gt; keep last team</td>
+<td>Avoids flickering H/A in challenges.</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>order5_bridge</code></td>
+<td>1 s ball interpolation</td>
+<td>Short occlusions should not start a new spell.</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>order6_ghost</code></td>
+<td>2 s player ghosts + diagnostics</td>
+<td><strong>Deliverable.</strong> Same labels as 5, more stable
+nearest/zone when a slot blinks.</td>
+</tr>
+</tbody>
+</table>
+<p>Same drawing as the notebook visualizer
+(<code>starter/utils.py</code>): grass pitch, <strong>red =
+home</strong>, <strong>blue = away</strong>, <strong>white =
+ball</strong>. The yellow dashed ring is the 1.5 m zone drawn larger so
+it is readable on a full pitch.</p>
+<h3 id="live-frames-h-a-steps-3-6">Live frames (<code>H</code> /
+<code>A</code>) — steps 3-6</h3>
+<figure>
+<img src="../figures/live.png" alt="Live possession cases" />
+<figcaption aria-hidden="true">Live possession cases</figcaption>
+</figure>
+<ul>
+<li><strong>Zone + touch, 3 frames:</strong> a player inside 1.5 m and a
+touch (speed / turn) can take the label. Nearest player alone is not
+enough.</li>
+<li><strong>Duel:</strong> both teams in the zone -&gt; keep the last
+team (no H/A flicker).</li>
+<li><strong>Ghost 2 s:</strong> a slot that blinks is held; a 1 s
+dropout is not a new action.</li>
+<li><strong>Ball bridge &lt;= 1 s:</strong> fill a short missing-ball
+hole with the last velocity while the estimate stays near the
+pitch.</li>
+</ul>
+<h3 id="restarts-d-until-the-kick-steps-1-2-plus-hold">Restarts
+(<code>D</code> until the kick) — steps 1-2 plus hold</h3>
+<figure>
+<img src="../figures/restarts.png" alt="Restart cases" />
+<figcaption aria-hidden="true">Restart cases</figcaption>
+</figure>
+<ul>
+<li><strong>Throw-in / corner / goal kick</strong> from geometry: which
+line, and whether the ball is outside the posts. Stay <code>D</code>
+until the restart is taken, not until someone is 1.5 m from the ball.
+Walking to the flag is still <code>D</code>. Holes &lt; 5 s without a
+&gt;= 5 m/s kick stay <code>D</code> (placing the ball).</li>
+<li><strong>Short corner:</strong> the ball can reappear already at ~8
+m/s at the flag. That is the kick; we release when the pass slows below
+5 m/s.</li>
+<li><strong>Kick-off:</strong> XML window (~5 s) plus hold until the
+ball is struck at the centre. The XML is not the warm-up.</li>
+<li><strong>Penalty:</strong> Law 14 shape on the pitch (the only
+restart with a unique spatial trigger).</li>
+</ul>
+<h3 id="other-stoppages-d">Other stoppages (<code>D</code>)</h3>
+<figure>
+<img src="../figures/stoppages.png" alt="Stoppage cases" />
+<figcaption aria-hidden="true">Stoppage cases</figcaption>
+</figure>
+<ul>
+<li><strong>Keeper catch:</strong> last on-pitch sample inside 1.5 m,
+then the ball vanishes -&gt; <strong>save</strong>, live possession, not
+a restart.</li>
+<li><strong>Freeze &gt;= 5 s</strong>, ball quiet -&gt; <code>D</code>
+(large foul / offside). A 3 s freeze split true possessions in the
+5-minute file.</li>
+<li><strong>VAR huddle:</strong> ball missing &gt;= 20 s, players packed
+in midfield.</li>
+<li><strong>Match calendar</strong> (cooling, half-time warm-up, after
+the final whistle): not a ball-out DBE. The ATD has no whistle; jogging
+looks live. We take half spans from <code>games.half_video_blocks</code>
+(tracking IdFrame blocks). Outside those spans we write <code>D</code>
+and skip live possession. On BAR-ATH the second graded block starts at
+<strong>110808</strong> but kick-off is <strong>113742</strong> (2934
+frames, all <code>D</code>, FAQ). Cooling is a long <code>D</code> until
+the tagged restart (~163083). After <strong>190198</strong> the tactical
+file continues and is ungraded. Another EPTS match needs its own half
+blocks; the possession rules stay the same.</li>
+</ul>
+<p>Smart Tagging is used <strong>only</strong> for kick-off (start /
+after goal) windows and the published kick-off frames. Throw-in, corner,
+free-kick and goal-kick tags are 35 s search spans. Copying them as
+<code>D</code> <strong>hurts</strong> spellF1 (we tried). Official
+corner counts (e.g. 11) were <strong>not</strong> a fitting target.</p>
+<hr />
+<h2 id="calibration-on-5-minutes-rules-for-90">4. Calibration on 5
+minutes, rules for 90</h2>
+<p>The public GT is 7500 frames, 17 possessions. We used it to
+<strong>reject</strong> rules, not to tune 1.5 m / 5 m/s / 10 degrees /
+3 frames.</p>
+<p>Examples of checks against the clip and the rest of the match:</p>
+<ul>
+<li>Goal kick ~4:32 (frames 18025-18388): <code>D</code> until the
+throw, then <code>H</code> - matches GT. Reclassifying the keeper
+walking behind the goal as a corner was a <strong>type</strong> error,
+not a label error.</li>
+<li>Short corner ~4:24 (GT <code>A</code> at 17838): the ball was not
+missing; it reappeared at the flag already moving. Releasing on that
+kick (not on 1.5 m of the taker) put <code>A</code> from
+<strong>17843</strong>. Five frames late, inside the +/-25-frame
+transition window. A 15 s look-ahead to a later corner had previously
+glued a wing dropout at 17047 onto that corner -
+<strong>reverted</strong>.</li>
+<li>Freeze at 3 s would split true possessions in the 5 minutes; we kept
+<strong>5 s</strong>.</li>
+<li>Treating open-field missing ball as offside produced tens of
+thousands of <code>D</code> frames and collapsed spellF1 (~0.47 to
+~0.23) - <strong>reverted</strong>.</li>
+<li>Live H vs A disagreements (e.g. 17293, a recovery that the GT calls
+<code>H</code> while we still hold <code>A</code> through a duel) were
+left: they need a different possession model, not a one-clip
+exception.</li>
+</ul>
+<p>Public score of the deliverable (<code>order6_ghost</code>):
+<strong>spellF1 ~ 0.52</strong>, macro-F1 ~ 0.83, accuracy ~ 0.83. The
+ranking metric did not move when we fixed half-time warm-up (that slice
+is not in the 5 minutes). The private file grades the full 158857
+in-play frames; that is where the 2934 warm-up <code>D</code> frames and
+the cooling-break <code>D</code> matter.</p>
+<p>The point of the challenge, for us: <strong>one 5-minute label file
+to constrain a 90-minute rule set</strong>, not to overfit 17
+possessions.</p>
+<hr />
+<h2 id="data-we-used-fifa-standard-files">5. Data we used (FIFA-standard
+files)</h2>
+<p>Only the <strong>tactical</strong> package:</p>
+<ul>
+<li><code>BAR-ATH_tactical_atd.xml</code> + <code>.txt</code> - EPTS
+tracking (kloppy).</li>
+<li><code>BAR-ATH_tactical_smart_tagging.xml</code> - kick-off windows
+and time base (kick-offs sit on 11185 and 113742).</li>
+<li>Tactical video - local <code>play_clip</code> review, not an input
+to the scorer.</li>
+<li>Homography / broadcast were <strong>not</strong> required for this
+submission.</li>
+</ul>
+<p>We stayed on that standard so the same code could run on another EPTS
+match <strong>if that match has half spans in the same table</strong>.
+Next steps would be more restarts (whistle is not in the file), fewer
+false freeze/VAR spells, and <strong>several matches</strong> instead of
+one. The interesting constraint was the opposite: one public slice.</p>
+<hr />
+<h2 id="notebooks-how-we-worked">6. Notebooks (how we worked)</h2>
+<p>All under <code>starter/</code>. The algorithm itself lives in
+<code>tiki_data_algorithm.py</code>; the notebooks are the audit
+trail.</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Notebook</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>01_smart_tagging.ipynb</code></td>
+<td>XML codes, set-piece types, time base vs real kick-offs.</td>
+</tr>
+<tr>
+<td><code>02_tracking_atd.ipynb</code></td>
+<td>EPTS load, pitch, missing ball, slot layout (home 0-23, away
+24-45).</td>
+</tr>
+<tr>
+<td><code>03_first_submission.ipynb</code></td>
+<td>Baseline nearest-player CSV and evaluation entry point.</td>
+</tr>
+<tr>
+<td><code>04_eda.ipynb</code></td>
+<td>EDA only (archived solution notebook not used for the
+deliverable).</td>
+</tr>
+<tr>
+<td><code>05_algoritmo.ipynb</code></td>
+<td>Runs steps 1-6 and writes <code>evaluation/results/</code> +
+<code>frame_df.csv</code>.</td>
+</tr>
+<tr>
+<td><code>06_revision.ipynb</code></td>
+<td><code>look(a, b)</code> vs public GT, event catalogue,
+<code>play_clip.py</code> for corners, throw-ins, cooling,
+half-time.</td>
+</tr>
+</tbody>
+</table>
+<p><code>frame_id</code> in the tables is the <strong>video</strong>
+index (deliverable <code>frame</code>). Tracking’s <code>frame_id</code>
+is stored as <code>tracking_frame_id</code> (= video + 1).</p>
+<hr />
+<h2 id="deliverable">7. Deliverable</h2>
+<ul>
+<li><strong>File:</strong>
+<code>evaluation/results/order6_ghost.csv</code></li>
+<li><strong>Format:</strong> <code>frame,label</code> - 199319 rows -
+alphabet <code>H</code>/<code>A</code>/<code>D</code></li>
+<li><strong>Code:</strong> <code>starter/tiki_data_algorithm.py</code>
+(step 6)</li>
+</ul>
+<p>We do not submit event types (corner, throw-in, etc.). They were a
+debug layer. The scorer only sees possession.</p>
+</body>
+</html>

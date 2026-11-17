@@ -1506,8 +1506,11 @@ def prepare_match(df: pd.DataFrame) -> pd.DataFrame:
     frame_df = df
     video = frame_df["frame_id"].to_numpy()
     n = len(video)
-    in_play = ((video >= 11185) & (video <= 90651)) | ((video >= 110808) & (video <= 190197))
-    half_start = (video == 11185) | (video == 110808)
+    in_play = np.zeros(n, dtype=bool)
+    half_start = np.zeros(n, dtype=bool)
+    for _half, lo, hi in games.half_video_blocks(games.GAME):
+        in_play |= (video >= lo) & (video <= hi)
+        half_start |= video == lo
     bx = frame_df["ball_x"].to_numpy(dtype=float)
     by = frame_df["ball_y"].to_numpy(dtype=float)
     px = frame_df[[f"{i}_x" for i in range(1, 47)]].to_numpy(dtype=float)
